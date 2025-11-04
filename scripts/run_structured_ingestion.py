@@ -92,6 +92,7 @@ async def process_batch(
             # we patch this during rollout creation but need to check here
             if episode.episode_metadata.file_path.removeprefix("/") in existing_paths:
                 result.n_skipped += 1
+                print(f"⏭️  Skipping episode {i} (already ingested): {episode.episode_metadata.file_path}")
                 continue
             valid_episodes.append((i, episode))
         except Exception as e:
@@ -101,6 +102,8 @@ async def process_batch(
             )
 
     print(f"Valid episodes after filtering: {len(valid_episodes)}")
+    if result.n_skipped > 0:
+        print(f"✓ Skipped {result.n_skipped} already-ingested episodes in this batch")
     if not valid_episodes:
         return result
 
@@ -169,6 +172,10 @@ async def run_structured_database_ingestion(
         ].tolist()
     )
 
+    if len(existing_paths) > 0:
+        print(f"\n📊 Found {len(existing_paths)} already-ingested episodes in database")
+        print(f"   These will be skipped to avoid duplicates and save API costs\n")
+
     # Create a single VLM instance to be shared across all batches
     vlm = get_vlm(vlm_name)
     extractor = VLMInformationExtractor(vlm)
@@ -200,9 +207,28 @@ async def run_structured_database_ingestion(
                 existing_paths,
             )
             total_result.update(result)
+
+            # Show batch results
+            if result.n_new > 0:
+                print(f"✓ Processed {result.n_new} new episodes")
+            if result.n_skipped > 0:
+                print(f"⏭️  Skipped {result.n_skipped} already-ingested episodes")
+            if len(result.fails) > 0:
+                print(f"⚠️  {len(result.fails)} episodes failed (will skip)")
+
+            # Only raise error if entire batch failed with no skips
             if result.n_new == 0 and result.n_skipped == 0 and len(result.fails) != 0:
+                print(f"❌ Entire batch failed - stopping")
                 raise RuntimeError(f"Batch failed: {result.fails}")
+
             current_batch = []
+
+            # Add delay between batches to avoid rate limiting
+            # Need significant delay to avoid hitting RPM (requests per minute) limits
+            if result.n_new > 0:
+                delay = 30  # 30 second delay to avoid RPM limits
+                print(f"⏸  Waiting {delay}s to avoid rate limits...")
+                await asyncio.sleep(delay)
 
     # Process final batch if any
     if current_batch:
@@ -219,11 +245,24 @@ async def run_structured_database_ingestion(
     if total_result.n_new == 0 and total_result.n_skipped == 0:
         raise RuntimeError(f"No new rollouts found: {total_result.fails}")
 
-    print(f"Structured database new rollouts: {total_result.n_new}")
+    print(f"\n{'='*60}")
+    print(f"STAGE 1 SUMMARY:")
+    print(f"  ✓ New rollouts ingested: {total_result.n_new}")
+    print(f"  ⏭️  Already-ingested (skipped): {total_result.n_skipped}")
+    if len(total_result.fails) > 0:
+        print(f"  ⚠️  Failed: {len(total_result.fails)}")
     total_time = time.time() - tic
-    print(f"Structured database time: {total_time}")
+    print(f"  ⏱️  Total time: {total_time:.1f}s")
     if total_result.n_new > 0:
-        print(f"Structured database mean time: {total_time / total_result.n_new}")
+        print(f"  ⏱️  Mean time per new rollout: {total_time / total_result.n_new:.1f}s")
+    print(f"{'='*60}\n")
+
+    # Clean up litellm HTTP sessions to prevent asyncio.run() from hanging
+    try:
+        import litellm
+        await litellm.close_litellm_async_clients()
+    except Exception as e:
+        print(f"Warning: Failed to close litellm client: {e}")
 
     return total_result.fails, total_result.new_ids
 

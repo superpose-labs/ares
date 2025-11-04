@@ -48,7 +48,7 @@ class BaseModalWrapper:
         self.WorkerCls = self.app.cls(
             image=image,
             gpu="t4",
-            concurrency_limit=10,
+            max_containers=10,
             timeout=600,
         )(worker_cls)
         print(f"Modal app {self.app_name} initialized")

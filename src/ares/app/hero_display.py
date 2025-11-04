@@ -183,8 +183,12 @@ def show_hero_display(
         # display a few key pieces of information, e.g. task and success
         if row.task_language_instruction:
             st.write(f"**Task:** {row.task_language_instruction}")
-        if not np.isnan(row.task_success) and row.task_success:
-            st.write(f"**Success:** {row.task_success:.2f}")
+        if pd.notna(row.task_success):
+            try:
+                success_val = float(row.task_success)
+                st.write(f"**Success:** {success_val:.2f}")
+            except (ValueError, TypeError):
+                st.write(f"**Success:** {row.task_success}")
         if isinstance(row.trajectory_reward_step, str):
             if int(row.trajectory_reward_step) >= 0:
                 st.write(

@@ -21,15 +21,16 @@ from vertexai.generative_models import GenerativeModel, Part
 from ares.utils.image_utils import encode_image
 
 # dependent on your key / organization tier
+# Reduced to prevent rate limit errors
 RATE_LIMITS = {
-    "openai": 10,  # 5000 RPM
+    "openai": 3,  # Reduced from 10 to 3 concurrent requests
     "anthropic": 2,  # 1000 RPM
     "gemini": 4,  # 1000 RPM
 }
 
-MAX_RETRIES = 3
-INITIAL_WAIT_SECONDS = 1
-MAX_WAIT_SECONDS = 10
+MAX_RETRIES = 5
+INITIAL_WAIT_SECONDS = 2
+MAX_WAIT_SECONDS = 60
 
 
 def structure_image_messages(
@@ -63,8 +64,8 @@ class VLM:
                 messages=[{"role": "user", "content": "!"}],
                 max_tokens=1,
             )
-        except Exception as e:
-            print(f"Error checking valid key: {e}")
+        except Exception:
+            # Silently return False - key validation will be checked on actual use
             return False
         return True
 
@@ -111,10 +112,21 @@ class VLM:
     async def _make_api_call(
         self, messages: list[dict], model_kwargs: dict
     ) -> ModelResponse:
-        """Wrapper for API calls with retry logic"""
-        return await acompletion(
-            model=self.full_name, messages=messages, **model_kwargs
-        )
+        """Wrapper for API calls with retry logic and timeout"""
+        try:
+            # Add 120 second timeout to prevent hanging
+            return await asyncio.wait_for(
+                acompletion(model=self.full_name, messages=messages, **model_kwargs),
+                timeout=120.0
+            )
+        except asyncio.TimeoutError:
+            print(f"⚠️  API call timeout (120s) - retrying...")
+            raise
+        except Exception as e:
+            # Print brief rate limit warning
+            if "rate_limit" in str(e).lower() or "429" in str(e):
+                print(f"⚠️  Rate limit - retrying...")
+            raise
 
     async def ask_async(
         self,

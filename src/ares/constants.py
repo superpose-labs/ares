@@ -1,7 +1,8 @@
 import os
 from collections import defaultdict
 
-ARES_DATA_DIR = "/workspaces/ares/data"
+# Use local data directory (update this path if you want data stored elsewhere)
+ARES_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
 ARES_OXE_DIR = os.path.join(ARES_DATA_DIR, "oxe")
 ARES_VIDEO_DIR = os.path.join(ARES_DATA_DIR, "videos")
 
@@ -57,10 +58,10 @@ DATASET_NAMES: list[dict[str, str]] = [
     #     "dataset_filename": "viola",
     #     "dataset_formalname": "Austin VIOLA",
     # },
-    # {
-    #     "dataset_filename": "kaist_nonprehensile_converted_externally_to_rlds",
-    #     "dataset_formalname": "KAIST Nonprehensile Objects",
-    # },
+    {
+        "dataset_filename": "kaist_nonprehensile_converted_externally_to_rlds",
+        "dataset_formalname": "KAIST Nonprehensile Objects",
+    },
     # {
     #     "dataset_filename": "berkeley_mvp_converted_externally_to_rlds",
     #     "dataset_formalname": "Berkeley MVP Data",
@@ -94,7 +95,8 @@ def get_dataset_info_by_key(key_type: str, key: str) -> dict[str, str]:
 
 # for ingestion operations, we're loading large amounts of data into memory at once.
 # this is a hard limit on the number of rollouts/requests to avoid memory issues.
-OUTER_BATCH_SIZE = 20
+# Reduced to 3 to avoid RPM (requests per minute) rate limits
+OUTER_BATCH_SIZE = 3
 
 # for annotation operations, the objects in memory are smaller (eg no point clouds),
 # so we can load more into memory at once.

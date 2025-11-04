@@ -21,7 +21,8 @@ tenacity
 modal
 
 # datasets and utilities
-datasets
+datasets>=2.20.0
+pyarrow>=21.0.0  # required for datasets compatibility
 tensorflow-datasets==4.9.3
 moviepy==1.0.3
 pymongo
@@ -42,3 +43,7 @@ openpyxl
 
 # database
 faiss-cpu # replace with faiss-gpu if available 
+
+# oxe downloader
+oxe-downloader
+

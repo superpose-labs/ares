@@ -158,7 +158,7 @@ class OpenXEmbodimentEpisode(TensorConverterMixin, BaseModel):
 
 # hardcoded path to OXE spreadsheet
 # see original version at https://docs.google.com/spreadsheets/d/1rPBD77tk60AEIGZrGSODwyyzs5FgCU9Uz3h-3_t2A9g/edit?gid=0#gid=0
-PATH_TO_OXE_SPREADSHEET = "/workspaces/ares/src/ares/extras/oxe.csv"
+PATH_TO_OXE_SPREADSHEET = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extras", "oxe.csv")
 HEADER_ROW = 16
 
 

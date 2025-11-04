@@ -235,7 +235,6 @@ class VLMInformationExtractor(InformationExtractor):
         hardcoded_infos = [
             merge_dicts(dataset_info_dict, ep_info) for ep_info in episode_info_dicts
         ]
-        print(f"found {len(hardcoded_infos)} hardcoded infos")
         # Prepare prompts and images
         prompts: list[dict | None] = []
         images_list: list[list[np.ndarray] | None] = []
@@ -276,7 +275,7 @@ class VLMInformationExtractor(InformationExtractor):
         # Batch process with VLM (only if we have valid prompts)
         responses = []
         if valid_prompts:
-            print(f"batching {len(valid_prompts)} prompts")
+            print(f"🤖 Calling VLM for {len(valid_prompts)} episodes...")
             results = await self.vlm.ask_batch_async(
                 infos=valid_prompts,
                 prompt_filename=component_kwargs["model_kwargs"].get(
@@ -286,6 +285,7 @@ class VLMInformationExtractor(InformationExtractor):
             )
             # Unpack the responses from the results
             responses = [response for _, response in results]
+            print(f"✓ VLM responses received")
 
         # Process responses and create rollouts
         for i, response in enumerate(responses):
@@ -298,13 +298,23 @@ class VLMInformationExtractor(InformationExtractor):
                 )
                 rollouts.append(rollout)
 
+            except json.JSONDecodeError as e:
+                # VLM returned invalid JSON - skip this episode
+                print(f"⚠️  JSON parse error (skipping episode): {e}")
+                error_dict = {
+                    "path": hardcoded_infos[valid_indices[i]]["rollout"]["path"],
+                    "error_pattern": "json_parse_failure",
+                    "error": f"VLM returned invalid JSON: {str(e)}",
+                    "response": response.choices[0].message.content[:500] if hasattr(response.choices[0].message, 'content') else "No content"
+                }
+                rollouts.append(error_dict)
             except Exception as e:
-                print(f"Error parsing response: {e}")
-                print(traceback.format_exc())
+                # Other errors
+                print(f"⚠️  Extraction error (skipping episode): {e}")
                 error_dict = {
                     "path": hardcoded_infos[valid_indices[i]]["rollout"]["path"],
                     "error_pattern": "extraction_failure",
-                    "error": traceback.format_exc(),
+                    "error": str(e),
                 }
                 rollouts.append(error_dict)
         return rollouts

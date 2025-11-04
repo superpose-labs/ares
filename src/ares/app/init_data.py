@@ -1,5 +1,10 @@
 import os
 
+# Fix FAISS OpenMP threading crash on macOS
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -139,23 +144,37 @@ def initialize_data(tmp_dump_dir: str) -> None:
     # Process each index type
     for index_name in META_INDEX_NAMES:
         print(f"Processing {index_name} index")
-        stored_embeddings = index_manager.indices[index_name].get_all_vectors()
-        stored_ids = index_manager.indices[index_name].get_all_ids()
-        # Try loading from cache first
-        cached_data = load_cached_embeddings(
-            tmp_dump_dir, index_name, stored_embeddings
-        )
-        if cached_data is not None:
-            embeddings, reduced, labels, ids = cached_data  # Unpack IDs from cache
-        else:
-            # Create new embeddings and clusters
-            embeddings = stored_embeddings
-            reduced, labels, _ = cluster_embeddings(embeddings)
-            ids = stored_ids  # Use the IDs from the index
-            save_embeddings(tmp_dump_dir, index_name, embeddings, reduced, labels, ids)
+        try:
+            stored_embeddings = index_manager.indices[index_name].get_all_vectors()
+            stored_ids = index_manager.indices[index_name].get_all_ids()
+            print(f"  Loaded {len(stored_embeddings)} embeddings")
 
-        # Store in session state
-        store_in_session(index_name, embeddings, reduced, labels, stored_ids)
+            # Try loading from cache first
+            cached_data = load_cached_embeddings(
+                tmp_dump_dir, index_name, stored_embeddings
+            )
+            if cached_data is not None:
+                print(f"  Using cached data")
+                embeddings, reduced, labels, ids = cached_data  # Unpack IDs from cache
+            else:
+                # Create new embeddings and clusters
+                print(f"  Computing clusters...")
+                embeddings = stored_embeddings
+                reduced, labels, _ = cluster_embeddings(embeddings)
+                print(f"  Clustering complete")
+                ids = stored_ids  # Use the IDs from the index
+                save_embeddings(tmp_dump_dir, index_name, embeddings, reduced, labels, ids)
+                print(f"  Saved to cache")
+
+            # Store in session state
+            print(f"  Storing in session")
+            store_in_session(index_name, embeddings, reduced, labels, stored_ids)
+            print(f"  {index_name} complete")
+        except Exception as e:
+            print(f"ERROR processing {index_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     print("Setting up models")
     st.session_state.models = dict()

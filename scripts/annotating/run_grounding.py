@@ -207,6 +207,14 @@ async def run_ground_and_annotate(
         ann_db,
         rollouts,
     )
+
+    # Clean up litellm HTTP sessions to prevent asyncio.run() event loop conflicts
+    try:
+        import litellm
+        await litellm.close_litellm_async_clients()
+    except Exception as e:
+        pass  # Silently ignore cleanup errors
+
     return tracker, failures
 
 
@@ -228,12 +236,13 @@ class GroundingModalAnnotatingFn(AnnotatingFn):
         annotator = GroundingModalWrapper()
         with annotator.app.run():
             # Limited by CPU RAM (can't create all requests at once)
+            total_batches = max(1, (len(rollouts) + outer_batch_size - 1) // outer_batch_size)
             for i in tqdm(
                 range(0, len(rollouts), outer_batch_size),
                 desc="Processing outer batches",
             ):
                 print(
-                    f"Processing batch {i // outer_batch_size + 1} of {len(rollouts) // outer_batch_size}"
+                    f"Processing batch {i // outer_batch_size + 1} of {total_batches}"
                 )
                 # create VLM outside async as semaphore gets "bound" to async context
                 vlm = get_gpt_4o()
