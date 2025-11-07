@@ -86,12 +86,6 @@ def parse_args():
         default=300,
         help="CP-SAT solver time limit in seconds",
     )
-    parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=0.75,
-        help="Similarity threshold for CP-SAT cannot-link constraints",
-    )
 
     # Baseline
     parser.add_argument(
@@ -213,7 +207,6 @@ def main():
         cpsat_result = solve_cpsat(
             instance,
             time_limit_seconds=args.cpsat_time_limit,
-            similarity_threshold=args.similarity_threshold,
             verbose=True,
         )
 

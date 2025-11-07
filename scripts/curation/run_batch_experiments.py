@@ -70,12 +70,6 @@ def parse_args():
         help="CP-SAT time limit per instance in seconds",
     )
     parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=0.75,
-        help="Similarity threshold for CP-SAT cannot-link",
-    )
-    parser.add_argument(
         "--skip-cpsat",
         action="store_true",
         help="Skip CP-SAT solver (only run greedy and random)",
@@ -325,7 +319,6 @@ def main():
                 instance,
                 "cpsat",
                 time_limit_seconds=args.cpsat_time_limit,
-                similarity_threshold=args.similarity_threshold,
             )
 
             if "selected_indices" in cpsat_result and len(cpsat_result["selected_indices"]) > 0:

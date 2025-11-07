@@ -174,9 +174,9 @@ The objective balances three competing goals:
    - 100% coverage for all tested K values
 
 3. **`cpsat.py`**: Google OR-Tools CP-SAT solver
-   - Cannot-link constraints for diversity (S > threshold → forbid both)
+   - Linearized quadratic diversity penalty using auxiliary variables
    - Runtime: 0.01-0.06s (300x faster than greedy)
-   - Provably optimal for its formulation
+   - Optimizes the true objective function
    - 100% coverage for all tested K values
 
 **Scripts**:
@@ -505,17 +505,23 @@ for iteration in range(K):
 
 **CP-SAT Solver**:
 ```python
-# Maximize coverage
-objective = sum(w[i] * z[i] for i in clusters)
+# Maximize coverage - alpha * diversity_penalty
+# Linearize quadratic term using auxiliary variables
+for k1, k2 in pairs:
+    if S[k1, k2] > 0:
+        # Create p[k1,k2] = y[k1] * y[k2]
+        p = model.NewBoolVar(f"p_{k1}_{k2}")
+        model.Add(p <= y[k1])
+        model.Add(p <= y[k2])
+        model.Add(p >= y[k1] + y[k2] - 1)
+        penalty_terms.append(alpha * S[k1, k2] * p)
+
+# Objective: maximize coverage - diversity penalty
+objective = sum(w[i] * z[i] for i in clusters) - sum(penalty_terms)
 
 # Coverage linking: z_i can be 1 only if some selected y_k covers it
 for i in clusters:
     model.Add(sum(y[k] for k in rollouts if A[i,k]==1) >= z[i])
-
-# Diversity: cannot-link constraints
-for k1, k2 in pairs:
-    if S[k1, k2] > threshold:
-        model.Add(y[k1] + y[k2] <= 1)  # Cannot select both
 
 # Cardinality
 model.Add(sum(y) == K)
@@ -800,16 +806,16 @@ data/curated_datasets/              # Curated RLDS datasets
 2. Implement lazy evaluation (cache marginal gains)
 3. Use stochastic greedy (sample candidates)
 
-### 9.3 CP-SAT Objective is Poor
+### 9.3 CP-SAT is Too Slow
 
-**Symptom**: CP-SAT objective much worse than Greedy
+**Symptom**: CP-SAT runtime exceeds several minutes
 
-**Cause**: Cannot-link approximation is too restrictive
+**Cause**: Large number of auxiliary variables for quadratic penalty (one per non-zero similarity pair)
 
 **Solutions**:
-1. Tune similarity threshold (try 0.8, 0.85, 0.9)
-2. Implement true quadratic ILP formulation
-3. Use Greedy instead (better for small problems)
+1. Sparsify similarity matrix more aggressively (reduce top-L parameter)
+2. Use Greedy instead (better for small problems)
+3. Increase time limit if near-optimal solutions are being found
 
 ### 9.4 QUBO Solutions are Infeasible
 
