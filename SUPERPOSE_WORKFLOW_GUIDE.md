@@ -192,27 +192,6 @@ python scripts/ingest_oxe_dataset.py \
 
 **Expected cost for 5 episodes:** ~$0.05-0.10
 
-**Examples for specific datasets:**
-```bash
-# KAIST Nonprehensile
-python scripts/ingest_oxe_dataset.py \
-    --dataset-filename kaist_nonprehensile_converted_externally_to_rlds \
-    --dataset-formalname "KAIST Nonprehensile Objects" \
-    --max-episodes 5 --skip-grounding
-
-# CMU Play Fusion
-python scripts/ingest_oxe_dataset.py \
-    --dataset-filename cmu_play_fusion \
-    --dataset-formalname "CMU Play Fusion" \
-    --max-episodes 5 --skip-grounding
-
-# Bridge Dataset
-python scripts/ingest_oxe_dataset.py \
-    --dataset-filename bridge \
-    --dataset-formalname "Bridge" \
-    --max-episodes 5 --skip-grounding
-```
-
 Once verified, run on the full dataset:
 
 ```bash
@@ -301,105 +280,109 @@ This opens a browser at `http://localhost:8501` with the ARES dashboard.
 
 ---
 
-## Step 6: Select and Filter Subset
-
-In the web interface:
-
-### Method 1: Structured Filtering
-1. Use filter dropdowns on the left sidebar
-2. Select specific attributes (e.g., "success = True", "lighting = bright")
-3. The filtered dataset updates in real-time
-4. See count of selected rollouts at top
-
-### Method 2: Embedding-based Selection
-1. Go to "Embedding Data Filters" section
-2. View UMAP projection of task instructions or descriptions
-3. Use lasso select or box select to choose clusters
-4. Selected points filter the dataset
-
-### Method 3: Manual Selection
-1. Browse rollouts in "Video Grid" section
-2. Note IDs of interesting rollouts
-3. Create CSV with those IDs manually
 
 ---
 
-## Step 7: Export Filtered Subset
+## Step 6: Build QUBO Coefficients for Data Curation
 
-### 7.1 Export Rollout IDs from Web Interface
+After ingesting and visualizing your data, you can use QUBO-based optimization to automatically curate a diverse, high-quality subset for training.
 
-In the web interface:
-1. After filtering, scroll to "Export Options" section (bottom of sidebar)
-2. Select "CSV" format
-3. Click "Export Data Only"
-4. This downloads a CSV with your filtered rollouts (includes `id` column)
-
-### 7.2 Export to RLDS/TFDS Format
-
-Use a custom export script (you may need to create one for your dataset):
+**What this does:**
+- Extracts sub-trajectory windows from your dataset
+- Clusters windows to identify distinct behavior patterns
+- Builds coverage and similarity matrices for optimization
+- Creates a QUBO problem instance that balances coverage and diversity
 
 ```bash
-python scripts/YOUR_DATASET/export_to_rlds.py \
-    --ids-csv path/to/filtered_rollouts.csv \
-    --output-dir ./exported_subset
+# Build QUBO instance with window-based clustering
+python scripts/curation/build_window_qubo_instance.py
 ```
 
-This creates:
-```
-exported_subset/
-├── train/
-│   ├── episode_000000.tfrecord
-│   ├── episode_000001.tfrecord
-│   └── ...
-└── dataset_info.json
+**Output:** `data/curation/kaist_window_instance.pkl`
+
+**Customization (optional):**
+```bash
+python scripts/curation/build_window_qubo_instance.py \
+    --window-size 10 \      # Window length in timesteps
+    --stride 5 \            # Stride for sliding windows
+    --n-clusters 20 \       # Number of behavior clusters
+    --similarity-topL 32    # Top-L neighbors for similarity matrix
 ```
 
-**Format:** RLDS-compatible TFRecord files with:
-- Images (JPEG-encoded)
-- States (if available)
-- Actions
-- Rewards (1.0 on last step if successful)
-- Language instructions
-- Episode metadata
+**Verify the instance (optional):**
+```bash
+python scripts/curation/inspect_instance.py data/curation/kaist_window_instance.pkl
+```
+
+This prints detailed statistics about the coverage matrix, similarity matrix, and element weights.
 
 ---
 
-## Step 8: Use Exported Dataset
+## Step 7: Run Batch Experiments to Select Data Subset
 
-### Option 1: Load with TensorFlow Datasets
+This step solves the QUBO problem using multiple solvers (random baseline, greedy, CP-SAT) and compares their performance across different selection sizes.
 
-```python
-import tensorflow as tf
+**What this does:**
+- Runs multiple solvers for K = 30%, 50%, 70%, 90% of dataset
+- Balances coverage (diverse behaviors) vs diversity (avoid redundancy)
+- Generates comparison plots and summary tables
+- Saves solution files for each K value
 
-# Define feature spec (adjust based on your data)
-feature_description = {
-    'observation/image': tf.io.FixedLenFeature([], tf.string),
-    'action': tf.io.VarLenFeature(tf.float32),
-    'reward': tf.io.FixedLenFeature([1], tf.float32),
-    # ... add other features
-}
-
-def parse_example(example_proto):
-    return tf.io.parse_single_example(example_proto, feature_description)
-
-# Load dataset
-dataset = tf.data.TFRecordDataset([
-    'exported_subset/train/episode_000000.tfrecord',
-    # ... or use glob pattern
-])
-dataset = dataset.map(parse_example)
-
-for record in dataset.take(1):
-    print(record)
+```bash
+# Run all solvers with default settings
+python scripts/curation/run_batch_experiments.py
 ```
 
-### Option 2: Convert to Other Formats
+**Customization (optional):**
+```bash
+python scripts/curation/run_batch_experiments.py \
+    --instance data/curation/kaist_window_instance.pkl \
+    --percentages 30 50 70 90 \    # Selection percentages
+    --alpha 0.3 \                   # Diversity penalty weight
+    --skip-random                   # Skip random baseline (faster)
+```
 
-You can modify your export script to export to:
-- HDF5
-- Parquet
-- Custom pickle format
-- Raw videos + metadata JSON
+**Output files in `data/curation/`:**
+- `kaist_selected_K{60,100,140,180}.json` - Solution files for each K
+- `kaist_summary_K*.csv` - Comparison tables
+- `batch_experiment_results.{json,csv}` - All results
+- `coverage_vs_K.png`, `objective_vs_K.png`, etc. - Visualizations
+
+**Recommended solver:** Greedy (best quality) or CP-SAT (fastest for large datasets)
+
+---
+
+## Step 8: Create Curated RLDS Datasets
+
+Finally, export the selected rollouts to RLDS format for downstream training.
+
+**What this does:**
+- Reads experiment results from Step 7
+- Queries StructuredDatabase for selected rollout IDs
+- Exports curated subsets to RLDS format
+- Creates separate datasets for each solver and K value
+
+```bash
+# Create curated RLDS datasets from experiment results
+python scripts/curation/create_curated_rlds_datasets.py
+```
+
+**Output directory:** `data/curated_datasets/`
+- `kaist_greedy_K60/` - Greedy solver, K=60 rollouts
+- `kaist_greedy_K100/` - Greedy solver, K=100 rollouts
+- `kaist_cpsat_K60/` - CP-SAT solver, K=60 rollouts
+- ... and more
+
+Each directory contains RLDS-formatted TFRecord files ready for training.
+
+**Understanding the curation approach:**
+
+The QUBO framework optimizes for:
+1. **Coverage**: Select rollouts that cover diverse behavior clusters
+2. **Diversity**: Avoid selecting similar/redundant rollouts
+3. **Budget**: Select exactly K rollouts
+
+See `QUBO_KAIST_OVERVIEW.md` for detailed mathematical formulation and parameter tuning guidance.
 
 ---
 
@@ -430,6 +413,11 @@ streamlit run src/ares/app/webapp.py
 # 2. Apply filters
 # 3. Export CSV with IDs
 
+# QUBO-based curation (Steps 6-8)
+python scripts/curation/build_window_qubo_instance.py
+python scripts/curation/run_batch_experiments.py
+python scripts/curation/create_curated_rlds_datasets.py
+
 # Export to RLDS (if you have a custom export script)
 python scripts/YOUR_DATASET/export_to_rlds.py --ids-csv filtered.csv --output-dir ./output
 
@@ -438,86 +426,3 @@ brew services stop mongodb-community@7.0
 ```
 
 ---
-
-## Estimated Costs & Times
-
-**For ~100 rollouts:**
-- Download: 10-30 min (depends on network and dataset size)
-- Ingestion Stage 1 (VLM): 30-60 min, ~$1-2 (OpenAI API)
-- Ingestion Stage 2 (Embeddings): 5 min, free (local)
-- Ingestion Stage 3 (Grounding): 10-20 min, free (Modal credits)
-- Visualization: instant
-- Export: 2-5 min, free
-
-**Total: ~1-2 hours, ~$1-2 USD**
-
----
-
-## Troubleshooting
-
-### MongoDB Issues
-```bash
-# Check if running
-brew services list | grep mongodb
-
-# Restart if needed
-brew services restart mongodb-community@7.0
-
-# Check logs
-tail -f /opt/homebrew/var/log/mongodb/mongo.log
-```
-
-### API Rate Limits
-- Switch to `gpt-4o-mini` in your ingestion script (faster, cheaper, slightly less accurate)
-- Reduce batch size in `src/ares/constants.py`: `OUTER_BATCH_SIZE = 10`
-
-### Out of Memory
-- Reduce `OUTER_BATCH_SIZE` in `src/ares/constants.py`
-- Process dataset in smaller chunks
-
-### Modal Issues
-```bash
-# Setup Modal account (free tier available)
-pip install modal
-modal token new
-```
-
-### Missing Video Files
-- Re-run ingestion for failed rollouts
-- Check `data/annotating_failures/` for error logs
-
----
-
-## Dataset-Specific Considerations
-
-Different OXE datasets may have:
-- **Different observation spaces:** Some have RGB only, others have depth, proprioception, etc.
-- **Different action spaces:** Continuous vs. discrete, varying dimensionality
-- **Different metadata:** Task descriptions, success labels, episode metadata
-- **Different sizes:** From hundreds to hundreds of thousands of episodes
-
-**Tip:** Check the dataset's OXE page or paper for specifics before ingesting.
-
----
-
-## Next Steps
-
-After exporting your curated subset:
-1. **Train models:** Use exported RLDS data with your robot learning pipeline
-2. **Further analysis:** Use notebooks in `notebooks/` for custom analysis
-3. **Annotate more:** Run additional annotation scripts:
-   - `python scripts/annotating/run_success_criteria.py` - Add success criteria
-   - `python scripts/annotating/run_pseudo_ecot.py` - Add chain-of-thought reasoning
-4. **Upload to HuggingFace:** Share your curated dataset with the community
-
----
-
-## Support
-
-- **ARES Documentation:** See `CLAUDE.md` and `README.md`
-- **Issues:** Check existing issues or file new ones at the GitHub repo
-- **Dataset Questions:** Refer to Open X-Embodiment documentation
-
----
-
-Good luck with your dataset curation! 🤖
