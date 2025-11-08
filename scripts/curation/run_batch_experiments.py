@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         "--instance",
         type=str,
-        default="data/curation/kaist_instance.pkl",
+        default="data/curation/kaist_window_instance.pkl",
         help="Path to ProblemInstance pickle file",
     )
     parser.add_argument(

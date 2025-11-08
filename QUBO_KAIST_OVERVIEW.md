@@ -280,7 +280,7 @@ export OPENAI_API_KEY=your_key_here
 **Step 1: Download and ingest KAIST dataset**
 
 ```bash
-python scripts/kaist/ingest_kaist.py
+python scripts/kaist/ingest_data.py
 ```
 
 This will:
@@ -348,7 +348,7 @@ This will:
 **Minimal workflow** (using defaults):
 
 ```bash
-python scripts/kaist/ingest_kaist.py
+python scripts/kaist/ingest_data.py
 python scripts/curation/build_window_qubo_instance.py
 python scripts/curation/run_batch_experiments.py
 python scripts/curation/create_curated_rlds_datasets.py
@@ -766,7 +766,7 @@ scripts/curation/                   # Execution scripts
 └── create_curated_rlds_datasets.py # ✅ Export to RLDS
 
 scripts/kaist/                      # KAIST-specific
-└── ingest_kaist.py                 # ✅ KAIST ingestion
+└── ingest_data.py                 # ✅ KAIST ingestion
 
 data/curation/                      # Output directory
 ├── kaist_window_instance.pkl       # PSL instance

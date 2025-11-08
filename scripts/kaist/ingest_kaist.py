@@ -1,13 +1,16 @@
 """
-Custom script to ingest only the KAIST Nonprehensile dataset.
+Custom script to ingest KAIST Nonprehensile or CMU Play Fusion datasets.
 Run this after downloading the dataset with oxe-downloader.
 
 Usage:
-    # Test with 5 episodes first
-    python scripts/kaist/ingest_kaist.py --max-episodes 5
+    # Ingest KAIST (test with 5 episodes first)
+    python scripts/kaist/ingest_kaist.py --dataset kaist --max-episodes 5
 
-    # Run on full dataset
-    python scripts/kaist/ingest_kaist.py
+    # Ingest CMU Play Fusion (full dataset)
+    python scripts/kaist/ingest_kaist.py --dataset cmu_play_fusion
+
+    # Run on full KAIST dataset
+    python scripts/kaist/ingest_kaist.py --dataset kaist
 """
 
 import argparse
@@ -77,9 +80,17 @@ from scripts.run_trajectory_embedding_ingestion import (
     run_embedding_database_ingestion_per_dataset,
 )
 
-# Dataset configuration
-DATASET_FILENAME = "kaist_nonprehensile_converted_externally_to_rlds"
-DATASET_FORMALNAME = "KAIST Nonprehensile Objects"
+# Dataset configurations
+DATASET_CONFIGS = {
+    "kaist": {
+        "filename": "kaist_nonprehensile_converted_externally_to_rlds",
+        "formalname": "KAIST Nonprehensile Objects",
+    },
+    "cmu_play_fusion": {
+        "filename": "cmu_play_fusion",
+        "formalname": "CMU Play Fusion",
+    },
+}
 VLM_NAME = "gpt-4o"  # Using gpt-4o for much higher TPM limits (2M vs 200k for mini)
 
 
@@ -128,11 +139,11 @@ def run_ingestion_pipeline(
     print(f"STAGE 2: Embedding Ingestion (FAISS indexing)")
     print(f"{'='*60}")
 
-    # Stage 2: Clear old KAIST indexes and rebuild from scratch to avoid duplicates
+    # Stage 2: Clear old dataset indexes and rebuild from scratch to avoid duplicates
     from ares.databases.embedding_database import IndexManager, FaissIndex, META_INDEX_NAMES
     index_manager = IndexManager(EMBEDDING_DB_PATH, index_class=FaissIndex)
 
-    # Delete existing KAIST-specific indexes (states, actions) to prevent duplicates
+    # Delete existing dataset-specific indexes (states, actions) to prevent duplicates
     # Note: We also delete shared indexes (task, description) as they'll be rebuilt with all datasets
     indexes_to_delete = [k for k in index_manager.indices.keys() if dataset_formalname in k or k in META_INDEX_NAMES]
     if indexes_to_delete:
@@ -141,7 +152,7 @@ def run_ingestion_pipeline(
             print(f"    - {idx_name}")
             index_manager.delete_index(idx_name)
 
-    # Now rebuild indexes with ALL KAIST rollouts (will recreate shared indexes too)
+    # Now rebuild indexes with ALL dataset rollouts (will recreate shared indexes too)
     run_embedding_database_ingestion_per_dataset(
         all_rollouts, embedder, index_path=EMBEDDING_DB_PATH
     )
@@ -202,7 +213,14 @@ if __name__ == "__main__":
     with suppress_tensorflow_cleanup():
         # Parse command line arguments
         parser = argparse.ArgumentParser(
-            description="Ingest KAIST Nonprehensile dataset into ARES"
+            description="Ingest KAIST Nonprehensile or CMU Play Fusion dataset into ARES"
+        )
+        parser.add_argument(
+            "--dataset",
+            type=str,
+            choices=list(DATASET_CONFIGS.keys()),
+            required=True,
+            help="Dataset to ingest (kaist or cmu_play_fusion)",
         )
         parser.add_argument(
             "--max-episodes",
@@ -217,8 +235,13 @@ if __name__ == "__main__":
         )
         args = parser.parse_args()
 
+        # Get dataset configuration
+        dataset_config = DATASET_CONFIGS[args.dataset]
+        DATASET_FILENAME = dataset_config["filename"]
+        DATASET_FORMALNAME = dataset_config["formalname"]
+
         print("="*60)
-        print("KAIST Nonprehensile Dataset Ingestion")
+        print(f"{DATASET_FORMALNAME} Dataset Ingestion")
         print("="*60)
 
         if args.max_episodes:

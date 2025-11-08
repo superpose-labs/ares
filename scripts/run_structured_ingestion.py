@@ -1,6 +1,16 @@
 """
 Helper script to ingest structured data into the database. This script is used in `main` in order to ingest a dataset into the database. We do this by converting a
 dataset into a RLDS-style TFDS, extracting the rollouts from the TFDS, and then adding the rollouts to the database.
+
+Example usage:
+
+python scripts/run_structured_ingestion.py \
+    --dataset-filename cmu_play_fusion \
+    --dataset-formalname "CMU playfusion" \
+    --data-dir ./data/oxe \
+    --engine-url sqlite:///data/ares_local.db
+
+
 """
 
 import asyncio

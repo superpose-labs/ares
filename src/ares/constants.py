@@ -29,11 +29,11 @@ DATASET_NAMES: list[dict[str, str]] = [
         "dataset_filename": "cmu_stretch",
         "dataset_formalname": "CMU Stretch",
     },
-    # {"dataset_filename": "cmu_play_fusion", "dataset_formalname": "CMU Play Fusion"},
-    # {
-    #     "dataset_filename": "jaco_play",
-    #     "dataset_formalname": "USC Jaco Play",
-    # },
+    {"dataset_filename": "cmu_play_fusion", "dataset_formalname": "CMU Play Fusion"},
+    {
+        "dataset_filename": "jaco_play",
+        "dataset_formalname": "USC Jaco Play",
+    },
     # {
     #     "dataset_filename": "dlr_edan_shared_control_converted_externally_to_rlds",
     #     "dataset_formalname": "DLR Wheelchair Shared Control",
@@ -70,6 +70,10 @@ DATASET_NAMES: list[dict[str, str]] = [
     #     "dataset_filename": "pi_demos",
     #     "dataset_formalname": "Physical Intelligence Demos",
     # },
+    {
+        "dataset_filename": "berkeley_rpt_converted_externally_to_rlds",
+        "dataset_formalname": "KAIST Nonprehensile Objects",
+    },
 ]
 # Saytap does not have pixel data, so we exclude it
 # {

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Create RLDS datasets for each percentage based on greedy solution selections.
+Create RLDS datasets for each percentage based on solver solution selections.
 
 This script reads the batch experiment results and creates filtered RLDS datasets
-containing only the rollouts selected by the greedy solver for each percentage.
+containing only the rollouts selected by the specified solver (greedy or cpsat) for each percentage.
 
 Usage:
     python scripts/curation/create_curated_rlds_datasets.py
+    python scripts/curation/create_curated_rlds_datasets.py --solver cpsat
     python scripts/curation/create_curated_rlds_datasets.py --results-json custom_results.json
     python scripts/curation/create_curated_rlds_datasets.py --output-base-dir data/curated_datasets/
 """
@@ -29,10 +30,17 @@ sys.path.insert(0, str(repo_root / "src"))
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Create RLDS datasets from greedy solution selections",
+        description="Create RLDS datasets from solver solution selections",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="greedy",
+        choices=["greedy", "cpsat"],
+        help="Solver method to use for selecting rollouts",
+    )
     parser.add_argument(
         "--results-json",
         type=str,
@@ -62,26 +70,32 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_greedy_selections(results_json_path: str, percentages: List[float]) -> dict:
+def load_solver_selections(results_json_path: str, percentages: List[float], solver: str) -> dict:
     """
-    Load greedy solution selections from batch experiment results.
+    Load solver solution selections from batch experiment results.
+
+    Args:
+        results_json_path: Path to batch experiment results JSON file
+        percentages: List of percentages to load
+        solver: Solver method to filter for ('greedy' or 'cpsat')
 
     Returns:
         dict mapping percentage -> selected_indices (list)
     """
     print(f"Loading results from: {results_json_path}")
+    print(f"Solver: {solver}")
 
     with open(results_json_path, "r") as f:
         results = json.load(f)
 
-    # Filter for greedy solutions
-    greedy_results = [r for r in results if r["solver"] == "greedy"]
+    # Filter for specified solver solutions
+    solver_results = [r for r in results if r["solver"] == solver]
 
-    print(f"Found {len(greedy_results)} greedy solutions")
+    print(f"Found {len(solver_results)} {solver} solutions")
 
     # Create mapping
     selections = {}
-    for result in greedy_results:
+    for result in solver_results:
         pct = result["percentage"]
         if pct in percentages:
             selections[pct] = result["selected_indices"]
@@ -111,6 +125,7 @@ def create_filtered_rlds_dataset(
     selected_indices: List[int],
     output_dir: str,
     percentage: float,
+    solver: str,
 ):
     """
     Create a filtered RLDS dataset containing only selected episodes.
@@ -120,6 +135,7 @@ def create_filtered_rlds_dataset(
         selected_indices: List of episode indices to include (0-based)
         output_dir: Output directory for filtered dataset
         percentage: Percentage value (for naming and metadata)
+        solver: Solver method used for selection ('greedy' or 'cpsat')
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -204,7 +220,7 @@ def create_filtered_rlds_dataset(
         dataset_info["name"] = f"kaist_nonprehensile_curated_{int(percentage)}pct"
         dataset_info["description"] = (
             f"KAIST Nonprehensile dataset curated to {percentage}% "
-            f"({len(selected_indices)} episodes) using greedy diversity selection"
+            f"({len(selected_indices)} episodes) using {solver} diversity selection"
         )
 
         # Update split info - simplified version
@@ -239,6 +255,7 @@ def create_filtered_rlds_dataset(
         "num_episodes": len(selected_indices),
         "selected_indices": sorted(selected_indices),
         "source_dataset": str(source_dataset_path),
+        "solver": solver,
     }
 
     metadata_path = output_path / "selection_metadata.json"
@@ -253,7 +270,7 @@ def main():
     args = parse_args()
 
     print("=" * 80)
-    print("Creating Curated RLDS Datasets from Greedy Solutions")
+    print(f"Creating Curated RLDS Datasets from {args.solver.upper()} Solutions")
     print("=" * 80)
 
     # Verify source dataset exists
@@ -268,9 +285,9 @@ def main():
         print(f"Error: Results file not found: {results_path}")
         sys.exit(1)
 
-    # Load greedy selections
+    # Load solver selections
     try:
-        selections = load_greedy_selections(args.results_json, args.percentages)
+        selections = load_solver_selections(args.results_json, args.percentages, args.solver)
     except Exception as e:
         print(f"Error loading selections: {e}")
         sys.exit(1)
@@ -287,6 +304,7 @@ def main():
                 selected_indices=selections[pct],
                 output_dir=str(output_dir),
                 percentage=pct,
+                solver=args.solver,
             )
         except Exception as e:
             print(f"\nError creating dataset for {pct}%: {e}")
