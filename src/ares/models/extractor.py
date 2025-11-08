@@ -300,17 +300,32 @@ class VLMInformationExtractor(InformationExtractor):
 
             except json.JSONDecodeError as e:
                 # VLM returned invalid JSON - skip this episode
+                response_content = response.choices[0].message.content if hasattr(response.choices[0].message, 'content') else "No content"
                 print(f"⚠️  JSON parse error (skipping episode): {e}")
+                print(f"    Response content: {response_content[:500] if response_content else 'None/Empty'}")
+                print(f"    Response type: {type(response_content)}")
                 error_dict = {
                     "path": hardcoded_infos[valid_indices[i]]["rollout"]["path"],
                     "error_pattern": "json_parse_failure",
                     "error": f"VLM returned invalid JSON: {str(e)}",
-                    "response": response.choices[0].message.content[:500] if hasattr(response.choices[0].message, 'content') else "No content"
+                    "response": response_content[:500] if response_content else "No content"
+                }
+                rollouts.append(error_dict)
+            except ValueError as e:
+                # Empty or invalid response from VLM
+                print(f"⚠️  ValueError (skipping episode): {e}")
+                error_dict = {
+                    "path": hardcoded_infos[valid_indices[i]]["rollout"]["path"],
+                    "error_pattern": "empty_response_failure",
+                    "error": str(e),
                 }
                 rollouts.append(error_dict)
             except Exception as e:
                 # Other errors
                 print(f"⚠️  Extraction error (skipping episode): {e}")
+                print(f"    Exception type: {type(e).__name__}")
+                import traceback
+                print(f"    Traceback: {traceback.format_exc()[:500]}")
                 error_dict = {
                     "path": hardcoded_infos[valid_indices[i]]["rollout"]["path"],
                     "error_pattern": "extraction_failure",

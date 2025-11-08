@@ -299,8 +299,18 @@ class SentenceTransformerEmbedder(Embedder):
 
 def parse_response(choice: t.Any, load_json: bool = False) -> dict | str:
     content: str = choice.message.content
+
+    # Handle None or empty content
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise ValueError(f"Empty or None response content. Full response: {choice}")
+
     if load_json:
         content = content.strip().removeprefix("```json").removesuffix("```").strip()
+
+        # Check again after stripping - sometimes responses are just "```json```" with nothing inside
+        if not content:
+            raise ValueError(f"Empty JSON content after stripping markdown. Original: {choice.message.content}")
+
         content = json.loads(content) if isinstance(content, str) else content
     return content
 

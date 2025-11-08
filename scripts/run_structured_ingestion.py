@@ -254,9 +254,8 @@ async def run_structured_database_ingestion(
             # Add delay between batches to avoid rate limiting
             # Need significant delay to avoid hitting RPM (requests per minute) limits
             if result.n_new > 0:
-                delay = 30  # 30 second delay to avoid RPM limits
-                print(f"⏸  Waiting {delay}s to avoid rate limits...")
-                await asyncio.sleep(delay)
+                print(f"⏸  Waiting {retry_delay}s to avoid rate limits...")
+                await asyncio.sleep(retry_delay)
 
     # Process final batch if any
     if current_batch:
@@ -331,7 +330,7 @@ async def run_structured_database_ingestion(
 
                 # Add delay between retry batches
                 if batch_end < len(retry_batch):
-                    await asyncio.sleep(30)
+                    await asyncio.sleep(retry_delay)
 
             failed_episodes = new_failed
 
