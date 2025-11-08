@@ -169,8 +169,15 @@ async def run_structured_database_ingestion(
     engine: Engine,
     dataset_filename: str,
     outer_batch_size: int = OUTER_BATCH_SIZE,
+    max_retries: int = 3,
+    retry_delay: int = 60,
 ) -> tuple[list[dict], set[uuid.UUID]]:
-    """Process dataset in batches with parallel VLM requests."""
+    """Process dataset in batches with parallel VLM requests and retry logic.
+
+    Args:
+        max_retries: Maximum number of retry attempts for failed episodes (default: 3)
+        retry_delay: Delay in seconds between retries (default: 60)
+    """
     tic = time.time()
     total_result = BatchResult()
 
@@ -192,6 +199,7 @@ async def run_structured_database_ingestion(
 
     # Process in streaming batches
     current_batch = []
+    failed_episodes = []  # Track episodes that failed and need retry
 
     for i, ep in tqdm(
         enumerate(ds), desc=f"Ingesting {dataset_formalname} rollouts", total=len(ds)
@@ -218,13 +226,23 @@ async def run_structured_database_ingestion(
             )
             total_result.update(result)
 
+            # Track failed episodes for retry
+            if len(result.fails) > 0:
+                for fail_info in result.fails:
+                    if "index" in fail_info:
+                        # Find the episode by index
+                        for idx, ep in current_batch:
+                            if idx == fail_info["index"]:
+                                failed_episodes.append((idx, ep, 0))  # (index, episode, retry_count)
+                                break
+
             # Show batch results
             if result.n_new > 0:
                 print(f"✓ Processed {result.n_new} new episodes")
             if result.n_skipped > 0:
                 print(f"⏭️  Skipped {result.n_skipped} already-ingested episodes")
             if len(result.fails) > 0:
-                print(f"⚠️  {len(result.fails)} episodes failed (will skip)")
+                print(f"⚠️  {len(result.fails)} episodes failed (will retry later)")
 
             # Only raise error if entire batch failed with no skips
             if result.n_new == 0 and result.n_skipped == 0 and len(result.fails) != 0:
@@ -251,6 +269,89 @@ async def run_structured_database_ingestion(
             existing_paths,
         )
         total_result.update(result)
+
+        # Track failed episodes for retry
+        if len(result.fails) > 0:
+            for fail_info in result.fails:
+                if "index" in fail_info:
+                    # Find the episode by index
+                    for idx, ep in current_batch:
+                        if idx == fail_info["index"]:
+                            failed_episodes.append((idx, ep, 0))  # (index, episode, retry_count)
+                            break
+
+    # Retry failed episodes
+    if failed_episodes:
+        print(f"\n{'='*60}")
+        print(f"RETRYING FAILED EPISODES")
+        print(f"{'='*60}")
+        print(f"Found {len(failed_episodes)} failed episodes. Will retry up to {max_retries} times.")
+
+        retry_count = 0
+        while failed_episodes and retry_count < max_retries:
+            retry_count += 1
+            print(f"\n🔄 Retry attempt {retry_count}/{max_retries} for {len(failed_episodes)} episodes")
+            print(f"⏸  Waiting {retry_delay}s before retry to avoid rate limits...")
+            await asyncio.sleep(retry_delay)
+
+            # Process failed episodes in smaller batches
+            retry_batch = [(idx, ep) for idx, ep, _ in failed_episodes]
+            new_failed = []
+
+            # Process in smaller batches for retries
+            retry_batch_size = min(outer_batch_size, len(retry_batch))
+            for batch_start in range(0, len(retry_batch), retry_batch_size):
+                batch_end = min(batch_start + retry_batch_size, len(retry_batch))
+                retry_subset = retry_batch[batch_start:batch_end]
+
+                print(f"  Processing retry batch {batch_start//retry_batch_size + 1} ({len(retry_subset)} episodes)")
+                result = await process_batch(
+                    retry_subset,
+                    dataset_info,
+                    extractor,
+                    engine,
+                    dataset_filename,
+                    existing_paths,
+                )
+                total_result.update(result)
+
+                # Track episodes that still failed
+                if len(result.fails) > 0:
+                    for fail_info in result.fails:
+                        if "index" in fail_info:
+                            for idx, ep in retry_subset:
+                                if idx == fail_info["index"]:
+                                    new_failed.append((idx, ep, retry_count))
+                                    break
+
+                if result.n_new > 0:
+                    print(f"    ✓ Processed {result.n_new} episodes on retry")
+                if len(result.fails) > 0:
+                    print(f"    ⚠️  {len(result.fails)} episodes still failed")
+
+                # Add delay between retry batches
+                if batch_end < len(retry_batch):
+                    await asyncio.sleep(30)
+
+            failed_episodes = new_failed
+
+            if failed_episodes:
+                print(f"  Still have {len(failed_episodes)} failed episodes after retry {retry_count}")
+            else:
+                print(f"  ✓ All episodes processed successfully on retry {retry_count}")
+                break
+
+        if failed_episodes:
+            print(f"\n⚠️  After {max_retries} retry attempts, {len(failed_episodes)} episodes still failed")
+            # Add the remaining failures back to total_result
+            for idx, ep, _ in failed_episodes:
+                total_result.fails.append({
+                    "index": idx,
+                    "error": f"Failed after {max_retries} retry attempts",
+                    "traceback": "Max retries exceeded"
+                })
+        else:
+            print(f"\n✓ All failed episodes successfully processed after retries")
 
     if total_result.n_new == 0 and total_result.n_skipped == 0:
         raise RuntimeError(f"No new rollouts found: {total_result.fails}")

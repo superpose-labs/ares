@@ -1,16 +1,26 @@
 """
-Custom script to ingest KAIST Nonprehensile or CMU Play Fusion datasets.
+General script to ingest any Open X-Embodiment dataset into ARES.
 Run this after downloading the dataset with oxe-downloader.
 
 Usage:
-    # Ingest KAIST (test with 5 episodes first)
-    python scripts/kaist/ingest_kaist.py --dataset kaist --max-episodes 5
+    # Ingest with dataset filename and formal name (test with 5 episodes first)
+    python scripts/ingest_oxe_dataset.py \
+        --dataset-filename kaist_nonprehensile_converted_externally_to_rlds \
+        --dataset-formalname "KAIST Nonprehensile Objects" \
+        --max-episodes 5
 
     # Ingest CMU Play Fusion (full dataset)
-    python scripts/kaist/ingest_kaist.py --dataset cmu_play_fusion
+    python scripts/ingest_oxe_dataset.py \
+        --dataset-filename cmu_play_fusion \
+        --dataset-formalname "CMU Play Fusion" \
+        --max-episodes 5
 
-    # Run on full KAIST dataset
-    python scripts/kaist/ingest_kaist.py --dataset kaist
+    # Skip grounding annotation to save Modal credits during testing
+    python scripts/ingest_oxe_dataset.py \
+        --dataset-filename bridge \
+        --dataset-formalname "Bridge" \
+        --max-episodes 5 \
+        --skip-grounding
 """
 
 import argparse
@@ -80,17 +90,6 @@ from scripts.run_trajectory_embedding_ingestion import (
     run_embedding_database_ingestion_per_dataset,
 )
 
-# Dataset configurations
-DATASET_CONFIGS = {
-    "kaist": {
-        "filename": "kaist_nonprehensile_converted_externally_to_rlds",
-        "formalname": "KAIST Nonprehensile Objects",
-    },
-    "cmu_play_fusion": {
-        "filename": "cmu_play_fusion",
-        "formalname": "CMU Play Fusion",
-    },
-}
 VLM_NAME = "gpt-4o"  # Using gpt-4o for much higher TPM limits (2M vs 200k for mini)
 
 
@@ -104,8 +103,15 @@ def run_ingestion_pipeline(
     embedder,
     split,
     skip_grounding=False,
+    max_retries=3,
+    retry_delay=10,
 ):
-    """Run the three-stage ingestion pipeline."""
+    """Run the three-stage ingestion pipeline.
+
+    Args:
+        max_retries: Maximum number of retry attempts for failed episodes (default: 3)
+        retry_delay: Delay in seconds between retries (default: 10)
+    """
     print(f"\n{'='*60}")
     print(f"STAGE 1: Structured Ingestion (VLM inference)")
     print(f"{'='*60}")
@@ -119,6 +125,8 @@ def run_ingestion_pipeline(
             vlm_name,
             engine,
             dataset_filename,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
         )
     )
     print(f"✓ Structured ingestion complete. Failures: {len(structured_failures)}")
@@ -213,14 +221,19 @@ if __name__ == "__main__":
     with suppress_tensorflow_cleanup():
         # Parse command line arguments
         parser = argparse.ArgumentParser(
-            description="Ingest KAIST Nonprehensile or CMU Play Fusion dataset into ARES"
+            description="Ingest any Open X-Embodiment dataset into ARES"
         )
         parser.add_argument(
-            "--dataset",
+            "--dataset-filename",
             type=str,
-            choices=list(DATASET_CONFIGS.keys()),
             required=True,
-            help="Dataset to ingest (kaist or cmu_play_fusion)",
+            help="TensorFlow Datasets identifier (e.g., kaist_nonprehensile_converted_externally_to_rlds)",
+        )
+        parser.add_argument(
+            "--dataset-formalname",
+            type=str,
+            required=True,
+            help="Human-readable dataset name (e.g., 'KAIST Nonprehensile Objects')",
         )
         parser.add_argument(
             "--max-episodes",
@@ -233,15 +246,32 @@ if __name__ == "__main__":
             action="store_true",
             help="Skip grounding annotation stage (saves Modal credits for testing)",
         )
+        parser.add_argument(
+            "--vlm-name",
+            type=str,
+            default=VLM_NAME,
+            help=f"VLM model to use for structured ingestion (default: {VLM_NAME})",
+        )
+        parser.add_argument(
+            "--max-retries",
+            type=int,
+            default=3,
+            help="Maximum number of retry attempts for failed episodes (default: 3)",
+        )
+        parser.add_argument(
+            "--retry-delay",
+            type=int,
+            default=10,
+            help="Delay in seconds between retries (default: 10)",
+        )
         args = parser.parse_args()
 
-        # Get dataset configuration
-        dataset_config = DATASET_CONFIGS[args.dataset]
-        DATASET_FILENAME = dataset_config["filename"]
-        DATASET_FORMALNAME = dataset_config["formalname"]
+        DATASET_FILENAME = args.dataset_filename
+        DATASET_FORMALNAME = args.dataset_formalname
 
         print("="*60)
         print(f"{DATASET_FORMALNAME} Dataset Ingestion")
+        print(f"Dataset filename: {DATASET_FILENAME}")
         print("="*60)
 
         if args.max_episodes:
@@ -298,12 +328,14 @@ if __name__ == "__main__":
                 ds,
                 dataset_info,
                 DATASET_FORMALNAME,
-                VLM_NAME,
+                args.vlm_name,
                 engine,
                 DATASET_FILENAME,
                 embedder,
                 split,
                 skip_grounding=args.skip_grounding,
+                max_retries=args.max_retries,
+                retry_delay=args.retry_delay,
             )
 
             print(f"\n✓ Split '{split}' complete!")

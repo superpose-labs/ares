@@ -46,4 +46,6 @@ faiss-cpu # replace with faiss-gpu if available
 
 # oxe downloader
 oxe-downloader
-
+psutil
+tensorflow_datasets
+sqlalchemy

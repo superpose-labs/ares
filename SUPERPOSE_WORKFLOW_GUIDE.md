@@ -1,6 +1,6 @@
-# Complete Guide: KAIST Nonprehensile Dataset Workflow
+# Complete Guide: Open X-Embodiment Dataset Workflow
 
-This guide walks you through downloading, ingesting, visualizing, filtering, and exporting the KAIST Nonprehensile dataset using ARES on a Mac.
+This guide walks you through downloading, ingesting, visualizing, filtering, and exporting any Open X-Embodiment (OXE) dataset using ARES on a Mac.
 
 ## Prerequisites
 
@@ -101,10 +101,19 @@ modal token new  # Opens browser to authenticate with Modal
 mkdir -p data/oxe data/videos data/annotating_failures
 ```
 
-### 2.3 Verify Configuration
-The repository has already been configured with:
-- Local data directory: `./data/`
-- KAIST dataset enabled in `src/ares/constants.py`
+### 2.3 Enable Your Dataset
+
+Edit `src/ares/constants.py` to add your dataset to `DATASET_NAMES`:
+
+```python
+DATASET_NAMES = [
+    {
+        "dataset_filename": "your_dataset_name",  # TensorFlow Datasets identifier
+        "dataset_formalname": "Your Dataset Display Name"
+    },
+    # ... other datasets
+]
+```
 
 ---
 
@@ -122,42 +131,97 @@ The repository has already been configured with:
 
 ---
 
-## Step 3: Download KAIST Dataset
+## Step 3: Download OXE Dataset
 
 ```bash
-# Download KAIST Nonprehensile dataset (~size depends on dataset)
-oxe_download --dataset kaist_nonprehensile_converted_externally_to_rlds --path ./data/oxe
+# Download your chosen dataset (replace with your dataset name)
+oxe_download --dataset YOUR_DATASET_NAME --path ./data/oxe
 
-# This will create: ./data/oxe/kaist_nonprehensile_converted_externally_to_rlds/
+# Examples:
+# oxe_download --dataset kaist_nonprehensile_converted_externally_to_rlds --path ./data/oxe
+# oxe_download --dataset cmu_play_fusion --path ./data/oxe
+# oxe_download --dataset bridge --path ./data/oxe
+
+# This will create: ./data/oxe/YOUR_DATASET_NAME/
 ```
 
-**Note:** Download time depends on your internet connection. The dataset will be in TensorFlow Datasets format.
+**Find available datasets:** Visit [Open X-Embodiment](https://robotics-transformer-x.github.io/) or use `oxe_download --list` to see all available datasets.
+
+**Note:** Download time depends on your internet connection and dataset size. The dataset will be in TensorFlow Datasets format.
 
 ---
 
 ## Step 4: Ingest Dataset into ARES
 
-### 4.1 Test on Small Sample First (Recommended!)
+### 4.1 Using the General Ingestion Script
+
+ARES provides a general-purpose ingestion script that works with any Open X-Embodiment dataset:
+
+```bash
+# Run the complete 3-stage ingestion pipeline
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Display Name"
+```
+
+**Alternative:** You can also use individual scripts for more control:
+- Stage 1: `python scripts/run_structured_ingestion.py`
+- Stage 2: `python scripts/run_trajectory_embedding_ingestion.py`
+- Stage 3: `python scripts/annotating/run_grounding.py`
+
+Or use the main pipeline: `python main.py`
+
+### 4.2 Test on Small Sample First (Recommended!)
 
 **Test with just 5 episodes to verify everything works before spending tokens:**
 
 ```bash
 # Process only 5 episodes, skip expensive grounding annotation
-python scripts/kaist/ingest_kaist.py --max-episodes 5 --skip-grounding
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Display Name" \
+    --max-episodes 5 \
+    --skip-grounding
 
 # Or test with grounding included (uses Modal credits)
-python scripts/kaist/ingest_kaist.py --max-episodes 5
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Display Name" \
+    --max-episodes 5
 ```
 
 **Expected cost for 5 episodes:** ~$0.05-0.10
 
+**Examples for specific datasets:**
+```bash
+# KAIST Nonprehensile
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename kaist_nonprehensile_converted_externally_to_rlds \
+    --dataset-formalname "KAIST Nonprehensile Objects" \
+    --max-episodes 5 --skip-grounding
+
+# CMU Play Fusion
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename cmu_play_fusion \
+    --dataset-formalname "CMU Play Fusion" \
+    --max-episodes 5 --skip-grounding
+
+# Bridge Dataset
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename bridge \
+    --dataset-formalname "Bridge" \
+    --max-episodes 5 --skip-grounding
+```
+
 Once verified, run on the full dataset:
 
 ```bash
-python scripts/kaist/ingest_kaist.py
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Display Name"
 ```
 
-### 4.2 Ingestion Pipeline Stages
+### 4.3 Ingestion Pipeline Stages
 
 This script performs three stages:
 
@@ -211,7 +275,7 @@ This opens a browser at `http://localhost:8501` with the ARES dashboard.
 ### Navigation:
 
 1. **Loading Data Section (Top)**
-   - Select "KAIST Nonprehensile Objects" from dataset dropdown
+   - Select your dataset from the dropdown
    - Data loads automatically
 
 2. **Structured Data Filters**
@@ -272,17 +336,17 @@ In the web interface:
 
 ### 7.2 Export to RLDS/TFDS Format
 
-Use the custom export script:
+Use a custom export script (you may need to create one for your dataset):
 
 ```bash
-python scripts/kaist/export_to_rlds.py \
+python scripts/YOUR_DATASET/export_to_rlds.py \
     --ids-csv path/to/filtered_rollouts.csv \
-    --output-dir ./exported_kaist_subset
+    --output-dir ./exported_subset
 ```
 
 This creates:
 ```
-exported_kaist_subset/
+exported_subset/
 ├── train/
 │   ├── episode_000000.tfrecord
 │   ├── episode_000001.tfrecord
@@ -320,7 +384,7 @@ def parse_example(example_proto):
 
 # Load dataset
 dataset = tf.data.TFRecordDataset([
-    'exported_kaist_subset/train/episode_000000.tfrecord',
+    'exported_subset/train/episode_000000.tfrecord',
     # ... or use glob pattern
 ])
 dataset = dataset.map(parse_example)
@@ -331,7 +395,7 @@ for record in dataset.take(1):
 
 ### Option 2: Convert to Other Formats
 
-You can modify `scripts/kaist/export_to_rlds.py` to export to:
+You can modify your export script to export to:
 - HDF5
 - Parquet
 - Custom pickle format
@@ -346,14 +410,19 @@ You can modify `scripts/kaist/export_to_rlds.py` to export to:
 brew services start mongodb-community@7.0
 pip install -r requirements.txt -e .
 
-# Download dataset
-oxe_download --dataset kaist_nonprehensile_converted_externally_to_rlds --path ./data/oxe
+# Download dataset (replace YOUR_DATASET_NAME)
+oxe_download --dataset YOUR_DATASET_NAME --path ./data/oxe
 
 # Test ingestion with small sample (RECOMMENDED FIRST!)
-python scripts/kaist/ingest_kaist.py --max-episodes 5 --skip-grounding
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Name" \
+    --max-episodes 5 --skip-grounding
 
 # Full ingestion
-python scripts/kaist/ingest_kaist.py
+python scripts/ingest_oxe_dataset.py \
+    --dataset-filename YOUR_DATASET_FILENAME \
+    --dataset-formalname "Your Dataset Name"
 
 # Visualize and filter
 streamlit run src/ares/app/webapp.py
@@ -361,8 +430,8 @@ streamlit run src/ares/app/webapp.py
 # 2. Apply filters
 # 3. Export CSV with IDs
 
-# Export to RLDS
-python scripts/kaist/export_to_rlds.py --ids-csv filtered.csv --output-dir ./output
+# Export to RLDS (if you have a custom export script)
+python scripts/YOUR_DATASET/export_to_rlds.py --ids-csv filtered.csv --output-dir ./output
 
 # Stop MongoDB when done (optional)
 brew services stop mongodb-community@7.0
@@ -373,7 +442,7 @@ brew services stop mongodb-community@7.0
 ## Estimated Costs & Times
 
 **For ~100 rollouts:**
-- Download: 10-30 min (depends on network)
+- Download: 10-30 min (depends on network and dataset size)
 - Ingestion Stage 1 (VLM): 30-60 min, ~$1-2 (OpenAI API)
 - Ingestion Stage 2 (Embeddings): 5 min, free (local)
 - Ingestion Stage 3 (Grounding): 10-20 min, free (Modal credits)
@@ -399,7 +468,7 @@ tail -f /opt/homebrew/var/log/mongodb/mongo.log
 ```
 
 ### API Rate Limits
-- Switch to `gpt-4o-mini` in `scripts/kaist/ingest_kaist.py` (faster, cheaper, slightly less accurate)
+- Switch to `gpt-4o-mini` in your ingestion script (faster, cheaper, slightly less accurate)
 - Reduce batch size in `src/ares/constants.py`: `OUTER_BATCH_SIZE = 10`
 
 ### Out of Memory
@@ -416,6 +485,18 @@ modal token new
 ### Missing Video Files
 - Re-run ingestion for failed rollouts
 - Check `data/annotating_failures/` for error logs
+
+---
+
+## Dataset-Specific Considerations
+
+Different OXE datasets may have:
+- **Different observation spaces:** Some have RGB only, others have depth, proprioception, etc.
+- **Different action spaces:** Continuous vs. discrete, varying dimensionality
+- **Different metadata:** Task descriptions, success labels, episode metadata
+- **Different sizes:** From hundreds to hundreds of thousands of episodes
+
+**Tip:** Check the dataset's OXE page or paper for specifics before ingesting.
 
 ---
 
@@ -439,4 +520,4 @@ After exporting your curated subset:
 
 ---
 
-Good luck with your KAIST dataset curation! 🤖
+Good luck with your dataset curation! 🤖
