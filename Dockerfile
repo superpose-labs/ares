@@ -7,9 +7,9 @@ ENV TRANSFORMERS_CACHE=/cache/huggingface
 RUN mkdir -p /cache/huggingface
 
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    libgl1 \
     htop \
-    wkhtmltopdf
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt --retries 10
